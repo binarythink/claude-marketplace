@@ -1,0 +1,6 @@
+{
+  "name": "todo-band",
+  "version": "0.1.0",
+  "description": "Shows the session scratchpad's TODO.md in a pane (/todo)",
+  "types": "./types/index.d.ts"
+}

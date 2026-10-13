@@ -1,0 +1,6 @@
+{
+  "name": "git-graph",
+  "version": "0.1.0",
+  "description": "Shows the working directory's git log as a graph in a side pane",
+  "types": "./types/index.d.ts"
+}
