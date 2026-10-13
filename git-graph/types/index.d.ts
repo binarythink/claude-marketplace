@@ -4,11 +4,27 @@ export type GraphLine = {
   refs?: string
   subject?: string
   author?: string
-  date?: string
+  // author date, unix seconds
+  time?: number
+  isMerge?: boolean
+}
+
+export type RefKind = 'head' | 'local' | 'remote' | 'tag' | 'other'
+
+export type Ref = { name: string; kind: RefKind }
+
+export type RepoStatus = {
+  // undefined 면 detached HEAD
+  branch?: string
+  upstream?: string
+  ahead: number
+  behind: number
+  changed: number
 }
 
 export type GraphLog = {
   lines: GraphLine[]
+  status?: RepoStatus
   error?: string
   loadedAt?: number
 }
