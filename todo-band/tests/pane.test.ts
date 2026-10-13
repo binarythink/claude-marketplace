@@ -18,7 +18,7 @@ test('draws the scratchpad TODO.md in a pane', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, {})
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('command.register', () => ({ value: undefined }))
+  on('command.register', () => ({ value: { command: 'todo' } }))
   // 탭은 연 순서대로 쌓이고 마지막에 새로 연 pane 이 앞에 보인다. 열린 id 의 open 은 탭을 바꾸지 않는다.
   const tabs: string[] = []
   const shown = { has: (id: string) => tabs.includes(id) }
