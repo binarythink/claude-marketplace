@@ -19,17 +19,20 @@ test('draws the scratchpad TODO.md in a pane', async ($, on) => {
   mock.env(on, {})
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: undefined }))
-  const shown = new Set<string>()
+  // 탭은 연 순서대로 쌓이고 마지막에 새로 연 pane 이 앞에 보인다. 열린 id 의 open 은 탭을 바꾸지 않는다.
+  const tabs: string[] = []
+  const shown = { has: (id: string) => tabs.includes(id) }
   on('ui.open', (_$, e) => {
-    shown.add(e.id)
+    if (!tabs.includes(e.id)) tabs.push(e.id)
     return { value: { isPlaced: true } }
   })
   on('ui.close', (_$, e) => {
-    shown.delete(e.id)
+    tabs.splice(tabs.indexOf(e.id) >>> 0, 1)
     return { value: undefined }
   })
   on('ui.panes', () => ({
-    value: [...shown].map(id => ({ id, title: 'TODO.md', isShown: true, isFocused: false, isPlaced: true })) as never,
+    value: tabs.map((id, i) =>
+      ({ id, title: id, isShown: i === tabs.length - 1, isFocused: false, isPlaced: true })) as never,
   }))
   on('session.id', () => ({ value: SESSION }))
   on('session.root', () => ({ value: '/Users/me/proj' }))
@@ -62,6 +65,11 @@ test('draws the scratchpad TODO.md in a pane', async ($, on) => {
   const line = (text: string) => texts.find(one => one.text === text)
   expect(line('- [x] write mod')?.props.strikethrough).toBe(true)
   expect(line('- [ ] ship it')?.props.strikethrough).toBeFalsy()
+
+  // 다른 탭 뒤에 있으면 닫지 않고 앞으로 가져오고, 앞에 있을 때 다시 실행하면 닫는다.
+  tabs.push('other')
+  expect(await $.command.run(RUN)).toMatchObject({ text: 'TODO pane brought to front.' })
+  expect(tabs).toEqual(['other', 'todo'])
 
   expect(await $.command.run(RUN)).toMatchObject({ text: 'TODO pane closed.' })
   expect(shown.has('todo')).toBe(false)

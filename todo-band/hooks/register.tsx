@@ -94,10 +94,18 @@ export const register: Register = on => {
   })
 
   // /todo 는 pane 을 열고 닫는 toggle 이다. TODO.md 가 생겨도 자동으로 열지 않는다.
+  // 다른 탭 뒤에 열려 있으면 닫지 않고 앞으로 가져온다.
   on('command.run', { command: 'todo' }, async $ => {
-    if ((await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)) {
+    const pane = (await $.ui.panes()).find(one => one.id === PANE)
+    if (pane?.isShown) {
       await $.ui.close({ id: PANE })
       return { text: 'TODO pane closed.' }
+    }
+    if (pane) {
+      // 열린 id 를 다시 open 하면 제목만 바뀌고 탭은 그대로라, 닫았다 열어 맨 앞 탭으로 올린다.
+      await $.ui.close({ id: PANE })
+      await $.ui.open({ id: PANE, title: PANE_TITLE })
+      return { text: 'TODO pane brought to front.' }
     }
     await refresh($).catch(() => undefined)
     await $.ui.open({ id: PANE, title: PANE_TITLE })

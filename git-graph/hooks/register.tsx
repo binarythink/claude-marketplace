@@ -51,8 +51,11 @@ async function refresh($: EngineInterface): Promise<GraphLog> {
   return log
 }
 
-const isShown = async ($: EngineInterface) =>
-  (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)
+const paneOf = async ($: EngineInterface) =>
+  (await $.ui.panes()).find(pane => pane.id === PANE)
+
+// 다른 탭 뒤에 있어도 열려 있으면 graph 를 최신으로 유지한다.
+const isOpen = async ($: EngineInterface) => (await paneOf($)) !== undefined
 
 // header 의 상태 조각: branch, upstream 대비 ahead/behind, 변경 파일 수, 마지막 갱신 시각.
 const statusPieces = (status: RepoStatus | undefined, loadedAt: number | undefined): Piece[] => {
@@ -79,16 +82,25 @@ export const register: Register = on => {
       description: 'Toggle the side pane showing the git log of the working directory as a graph',
     })
     // reload 로 session.start 가 다시 불려도 pane 이 열려 있을 때만 읽는다.
-    if (await isShown($).catch(() => false)) void refresh($)
+    if (await isOpen($).catch(() => false)) void refresh($)
 
     return next(e)
   })
 
   // /git-graph 는 pane 을 열고 닫는 toggle 이다. 세션 시작 시 자동으로 열지 않는다.
+  // 다른 탭 뒤에 열려 있으면 닫지 않고 앞으로 가져온다.
   on('command.run', { command: 'git-graph' }, async $ => {
-    if (await isShown($)) {
+    const pane = await paneOf($)
+    if (pane?.isShown) {
       await $.ui.close({ id: PANE })
       return { text: 'Git graph pane closed.' }
+    }
+    if (pane) {
+      // 열린 id 를 다시 open 하면 제목만 바뀌고 탭은 그대로라, 닫았다 열어 맨 앞 탭으로 올린다.
+      const log = await refresh($)
+      await $.ui.close({ id: PANE })
+      await $.ui.open({ id: PANE, title: TITLE })
+      return { text: log.error ? `Git graph: ${log.error}` : 'Git graph pane brought to front.' }
     }
     await update($, offsetAtom, () => 0)
     const log = await refresh($)
@@ -100,7 +112,7 @@ export const register: Register = on => {
   // graph 를 바꾸는 git 명령이 Bash 로 실행되고 pane 이 열려 있으면 다시 읽는다.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ran = await next(e)
-    if (e.tool === 'Bash' && changesGraph(e.command) && await isShown($).catch(() => false)) void refresh($)
+    if (e.tool === 'Bash' && changesGraph(e.command) && await isOpen($).catch(() => false)) void refresh($)
 
     return ran
   })

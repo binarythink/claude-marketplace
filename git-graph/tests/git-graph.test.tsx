@@ -174,6 +174,34 @@ describe('toggle', () => {
     expect(await $.command.run(RUN)).toMatchObject({ text: 'Git graph pane closed.' })
     expect(shown.has('git-graph')).toBe(false)
   })
+  test('/git-graph brings the pane to front when it is behind another tab', async ($, on) => {
+    // 탭은 연 순서대로 쌓이고 마지막에 새로 연 pane 이 앞에 보인다. 열린 id 의 open 은 탭을 바꾸지 않는다.
+    const tabs: string[] = []
+    on('session.start', async ($, e) => ({ cwd: e.cwd }))
+    on('command.register', async ($, e) => ({ value: { command: e.name } }))
+    on('process.run', git(0, LOG))
+    on('ui.open', async ($, e) => {
+      if (!tabs.includes(e.id)) tabs.push(e.id)
+      return { value: { isPlaced: true as const } }
+    })
+    on('ui.close', async ($, e) => {
+      tabs.splice(tabs.indexOf(e.id) >>> 0, 1)
+      return { value: undefined }
+    })
+    on('ui.panes', async () => ({
+      value: tabs.map((id, i) =>
+        ({ id, title: id, isShown: i === tabs.length - 1, isFocused: false, isPlaced: true })) as never,
+    }))
+    await $.session.start(START)
+
+    await $.command.run(RUN)
+    tabs.push('other')
+    expect(await $.command.run(RUN)).toMatchObject({ text: 'Git graph pane brought to front.' })
+    expect(tabs).toEqual(['other', 'git-graph'])
+
+    expect(await $.command.run(RUN)).toMatchObject({ text: 'Git graph pane closed.' })
+    expect(tabs).toEqual(['other'])
+  })
 })
 
 describe('refresh after Bash', () => {
@@ -181,13 +209,16 @@ describe('refresh after Bash', () => {
     ['re-reads after a commit while the pane is open', true, 'git commit -m x', 2],
     ['skips read-only git commands', true, 'git status', 0],
     ['skips while the pane is closed', false, 'git commit -m x', 0],
+    ['re-reads while the pane is behind another tab', 'behind', 'git commit -m x', 2],
   ] as const) {
     test(label, async ($, on) => {
       const argvs: string[] = []
       const clock = mock.clock(on)
       on('session.start', async ($, e) => ({ cwd: e.cwd }))
       on('command.register', async ($, e) => ({ value: { command: e.name } }))
-      on('ui.panes', shownPanes(open ? ['git-graph'] : []))
+      on('ui.panes', open === 'behind'
+        ? async () => ({ value: [{ id: 'git-graph', title: 'Git graph', isShown: false, isFocused: false, isPlaced: true }] as never })
+        : shownPanes(open ? ['git-graph'] : []))
       on('process.run', async ($, e) => {
         argvs.push(e.argv[1] ?? '')
         return git(0, LOG)($, e)
