@@ -2,3 +2,4 @@
 */.claude-plugin/types/
 *.bak-*
 .DS_Store
+session-outputs/tsconfig.json
