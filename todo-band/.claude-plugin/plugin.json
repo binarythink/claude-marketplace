@@ -1,6 +1,14 @@
 {
   "name": "todo-band",
-  "version": "0.2.0",
-  "description": "Shows the session scratchpad's TODO.jsonl (with dependencies) or TODO.md in a pane (/todo), plus a skill that writes TODO.jsonl",
-  "types": "./types/index.d.ts"
+  "version": "0.3.0",
+  "description": "Shows the session scratchpad's TODO.jsonl (with dependencies) or TODO.md in a pane (/todo), plus a skill that writes TODO.jsonl and /auto-todo to have Claude keep it up to date on every request",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoTodoDefault": {
+      "type": "boolean",
+      "title": "auto-todo on at session start",
+      "description": "Start each session with /auto-todo on",
+      "default": false
+    }
+  }
 }

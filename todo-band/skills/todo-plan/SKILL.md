@@ -51,3 +51,14 @@ One JSON object per line, no surrounding array, no trailing commas, no comments.
 6. **Only one `doing` at a time**, unless you really run steps in parallel (for example, subagents).
 7. **Cancelling an item** does not unblock its dependents — only `done` does. When you cancel, also remove its `id` from other items' `deps`, or cancel those items too.
 8. **Do not paste the file into chat.** The user sees it in the `/todo` pane; mention only what changed when it matters.
+
+## When auto-todo is on
+
+The user turns this on with `/auto-todo on`; each of their prompts then carries a note saying so. While it is on:
+
+- **Track every request that asks for work**, even a one-step one — not only tasks with three or more steps. A question that needs no edits, commands or investigation gets no item.
+- **Append, do not restart.** When a new request arrives, add its items at the end of the existing `TODO.jsonl` and keep earlier items, `done` ones included, as the session's history. Create the file only if there is none.
+- **Use only `TODO.jsonl`** for progress, not the built-in TodoWrite or Task tools.
+- When a note says your last turn did not update `TODO.jsonl`, bring it up to date with what that turn did before continuing.
+
+When a note says auto-todo was turned off, stop updating the file on your own; change it only when the user asks.
