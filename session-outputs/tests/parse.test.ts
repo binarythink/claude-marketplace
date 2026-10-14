@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { branchesFromCommand, classifyUrl, displayPath, extractUrls, parseTranscript, parseWorktrees, slugOf } from '../hooks/parse'
+import { branchesFromCommand, classifyUrl, dirOf, displayPath, extractUrls, parseTranscript, parseWorktrees, slugOf } from '../hooks/parse'
 
 describe('classifyUrl', () => {
   test('groups links by kind with short labels', () => {
@@ -69,9 +69,66 @@ test('parseTranscript collects title, span, links, files and branches', () => {
   expect(parsed.firstPrompt).toBe('PR 만들어줘 https://vroong-jira.atlassian.net/browse/ABC-1')
   expect(parsed.startedAt).toBe(Date.parse('2026-10-15T00:00:00Z'))
   expect(parsed.endedAt).toBe(Date.parse('2026-10-15T00:02:00Z'))
-  expect(parsed.files).toEqual(['/r/a.ts'])
-  expect(parsed.branches).toEqual(['feat/a'])
-  expect(parsed.links.map(one => one.label)).toEqual(['ABC-1', 'o/r#7'])
+  expect(parsed.artifacts.map(one => [one.kind, one.label, one.source])).toEqual([
+    ['jira', 'ABC-1', 'input'],
+    ['file', 'a.ts', 'output'],
+    ['pr', 'o/r#7', 'output'],
+    ['branch', 'feat/a', 'output'],
+  ])
+  expect(parsed.artifacts[1]).toMatchObject({ path: '/r/a.ts' })
+})
+
+const parseLines = (lines: object[]) => parseTranscript(lines.map(one => JSON.stringify(one)).join('\n'))
+const bash = (id: string, command: string) =>
+  ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } })
+const result = (id: string, content: string) =>
+  ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content }] } })
+
+test('gh pr view output is not read for artifacts', () => {
+  const parsed = parseLines([
+    bash('t1', 'gh pr view 76 -R o/r --json body,title'),
+    result('t1', '{"body":"- [x] [Cron Task 리스트](https://app.notion.com/p/vroong/Cron-Task-3accf5759dc0804fbe8bc9c2b073ce3a)\nhttps://github.com/o/r/pull/76"}'),
+  ])
+  expect(parsed.artifacts).toEqual([])
+})
+
+test('gh pr create keeps only GitHub links from its input and reads its output', () => {
+  const parsed = parseLines([
+    bash('t1', 'gh pr create --title x --body "Jira: https://vroong-jira.atlassian.net/browse/ABC-1\nSpec: https://www.notion.so/Spec-3accf5759dc0804fbe8bc9c2b073ce3a\nFollows https://github.com/o/r/pull/3"'),
+    result('t1', 'https://github.com/o/r/pull/4\n'),
+  ])
+  expect(parsed.artifacts.map(one => [one.kind, one.label, one.source])).toEqual([
+    ['pr', 'o/r#3', 'output'],
+    ['pr', 'o/r#4', 'output'],
+  ])
+})
+
+test('git push output names the pushed branch with its URL', () => {
+  const parsed = parseLines([
+    bash('t1', 'git push origin HEAD'),
+    result('t1', 'remote: Create a pull request for \'feat/x\' on GitHub by visiting:\nremote:      https://github.com/o/r/pull/new/feat/x\nremote:\nremote: See https://www.notion.so/Guide-3accf5759dc0804fbe8bc9c2b073ce3a'),
+  ])
+  expect(parsed.artifacts).toEqual([
+    { kind: 'branch', label: 'feat/x', href: 'https://github.com/o/r/tree/feat/x', source: 'output' },
+  ])
+})
+
+test('an artifact keeps the source where it first appeared', () => {
+  const parsed = parseLines([
+    { type: 'user', message: { content: '이 이슈 봐줘 https://vroong-jira.atlassian.net/browse/ABC-1' } },
+    { type: 'assistant', message: { content: [
+      { type: 'text', text: 'ABC-1(https://vroong-jira.atlassian.net/browse/ABC-1) 정리를 https://www.notion.so/Notes-3accf5759dc0804fbe8bc9c2b073ce3a 에 남겼습니다.' },
+      { type: 'tool_use', id: 't1', name: 'mcp__notion__create', input: { parent: 'https://www.notion.so/Team-0bccf5759dc0804fbe8bc9c2b073ce3a' } },
+      { type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'git checkout -b feat/y' } },
+    ] } },
+    { type: 'user', message: { content: 'https://www.notion.so/Notes-3accf5759dc0804fbe8bc9c2b073ce3a 확인했어' } },
+  ])
+  expect(parsed.artifacts.map(one => [one.kind, one.label, one.source])).toEqual([
+    ['jira', 'ABC-1', 'input'],
+    ['notion', 'Notes', 'output'],
+    ['notion', 'Team', 'output'],
+    ['branch', 'feat/y', 'output'],
+  ])
 })
 
 test('paths are shown relative to their worktree', () => {
@@ -82,6 +139,8 @@ test('paths are shown relative to their worktree', () => {
   expect(displayPath('/w/other/d.ts', [...roots, '/w/other'])).toBe('other:d.ts')
   expect(displayPath('/Users/me/notes.md', roots, '/Users/me')).toBe('~/notes.md')
   expect(slugOf('/Users/yongjik.kim/work/repo')).toBe('-Users-yongjik-kim-work-repo')
+  expect(['a/b.ts', 'b.ts', 'x:c.ts', 'x:d/c.ts', '~/notes.md', '/abs.md'].map(dirOf))
+    .toEqual(['a', '.', 'x:', 'x:d', '~', '/'])
 })
 
 test('a pasted prompt counts as the first prompt', () => {
@@ -90,5 +149,5 @@ test('a pasted prompt counts as the first prompt', () => {
     message: { content: '\n\n<pasted_content id="fb19">\n검증용 산출물을 만들어줘 https://herdr.dev\n</pasted_content>' },
   }))
   expect(parsed.firstPrompt).toBe('검증용 산출물을 만들어줘 https://herdr.dev')
-  expect(parsed.links.map(one => one.label)).toEqual(['herdr.dev'])
+  expect(parsed.artifacts.map(one => one.label)).toEqual(['herdr.dev'])
 })

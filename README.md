@@ -6,7 +6,7 @@ Personal [Claude Code](https://code.claude.com) mods.
 |---|---|---|
 | `git-graph` | `/git-graph` | Toggles a side pane showing the working directory's git log as a graph |
 | `pii-guard` | — | Checks each prompt for personal data before it is sent: blocks Korean unique identifiers, asks before sending phone numbers, emails, cards, accounts, addresses and attachments |
-| `session-outputs` | `/outputs` | Toggles a pane listing what the current session produced — PRs, branches, Jira/Notion/Confluence/Slack links, edited files, scratchpad files — grouped by kind |
+| `session-outputs` | `/outputs` | Toggles a pane listing what the current session produced — PRs, branches, Jira/Notion/Confluence/Slack links, edited files, scratchpad files — grouped into what the session produced (output) and links you gave it (input) |
 | `todo-band` | `/todo`, `/auto-todo` | Toggles a pane showing the session scratchpad's `TODO.jsonl` (or `TODO.md`); its `todo-plan` skill has Claude keep the plan there with dependencies, and `/auto-todo` has Claude keep it up to date on every request |
 | `herdr-screenshot` | — | Its `herdr-screenshot` skill saves a Herdr pane's screen as a PNG by rendering the pane's ANSI dump in headless Chrome |
 
@@ -59,19 +59,24 @@ cap.sh [--pane <id>] [--out <png|dir>] [--title <text>] [--lines N]
 
 ## session-outputs: 세션 산출물 뷰어
 
-`/outputs` 로 pane 을 열고 닫는다. 현재 진행 중인 세션의 transcript(`~/.claude/projects/<slug>/<session id>.jsonl`)와 scratchpad 를 읽어 종류별로 묶어 보여준다. 다른 세션의 산출물은 보이지 않는다.
+`/outputs` 로 pane 을 열고 닫는다. 현재 진행 중인 세션의 transcript(`~/.claude/projects/<slug>/<session id>.jsonl`)와 scratchpad 를 읽어 수집 출처별로 두 그룹에 나눠 보여준다. 다른 세션의 산출물은 보이지 않는다.
 
-| 종류 | 출처 |
+| 그룹 | 출처 |
 |---|---|
-| PR · Branch | `github.com/.../pull/N` URL, `git checkout -b`·`git worktree add -b`·`git push -u` 명령, `pull/new/<branch>` URL, 세션 중 checkout 된 branch |
-| Jira · Confluence · Notion · Slack · GitHub · Web | 사용자·assistant 의 글, 도구 입력(MCP 호출 포함), `git`·`gh` 명령의 입출력에 나온 URL |
-| File | `Write`·`Edit`·`NotebookEdit` 로 만든 파일 (지금 없으면 `(deleted)`) |
-| Scratch | 세션 scratchpad 의 파일 (`/tmp` 라 재부팅 후에는 사라진다) |
+| output | assistant 의 글과 도구 입력(MCP 호출 포함)에 나온 URL, `Write`·`Edit`·`NotebookEdit` 로 만든 파일, `git`·`gh` 명령의 입출력, 세션 중 checkout 된 branch, 세션 scratchpad 의 파일 |
+| input | 사용자 메시지의 글에 나온 URL |
+
+- 같은 항목이 두 그룹에서 나오면 처음 나온 쪽에만 보인다. 사용자가 준 참고 링크를 assistant 가 다시 언급해도 input 에 남는다
+- 그룹 안에서는 세션에 처음 나온 순서이고, 파일과 링크가 섞인다. scratchpad 파일은 output 의 맨 끝에 온다
+- 각 행은 type(PR · Branch · Jira · Confluence · Notion · Slack · GitHub · Web · File · Scratch), name, path 순이다. 파일의 name 은 파일 이름, path 는 worktree 기준 폴더(root 는 `.`)이고, 링크의 path 는 URL 이다. path 는 흐리게 보인다. 지금 없는 파일은 `(deleted)` 로 표시한다
+- `git`·`gh` 명령에서는 입력·출력 모두 GitHub 링크(PR · Branch · GitHub)만 남긴다. 출력은 `gh pr create`·`gh issue create`·`gh release create`·`git push` 의 것만 읽는다. `gh pr view`·`gh api`·`git log` 같은 조회 명령의 출력과 PR 본문(`--body`)의 Jira·Notion 링크는 참고 자료라 제외한다
+- branch 는 `git checkout -b`·`git switch -c`·`git worktree add -b`·`git push -u` 명령, `git push` 출력의 `pull/new/<branch>` URL 에서 찾는다
+- scratchpad 는 `/tmp` 아래라 재부팅 후에는 사라진다
 
 - `r` 로 다시 읽는다. 열려 있으면 10초마다 갱신한다
 - pane 에 포커스가 있을 때 `j`/`k` 로 한 item 씩 이동하고, `c` 는 선택한 item 의 이름, `p` 는 경로(파일은 절대 경로, 링크는 URL, URL 없는 branch 는 이름)를 클립보드에 복사한다
 - 4 MiB 가 넘는 transcript 는 `tail -c` 로 나눠 읽는다 (`$.fs.read` 상한)
-- 링크·파일은 클릭하면 열린다 (OSC 8 hyperlink)
+- 링크는 path 칸의 URL 을 클릭하면 열린다 (OSC 8 hyperlink). 파일은 OSC 8 을 못 그리는 터미널에서 `file://` URL 이 덧붙지 않도록 링크를 걸지 않는다. `p` 로 절대 경로를 복사한다
 - attribution 링크(`claude.ai/code/session_…`, `claude.com/claude-code`), `api.*` 엔드포인트, Read·WebFetch 등 도구 결과 속 URL 은 잡음이라 제외한다
 
 ## Install
