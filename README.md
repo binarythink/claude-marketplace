@@ -6,10 +6,11 @@ Personal [Claude Code](https://code.claude.com) mods.
 |---|---|---|
 | `git-graph` | `/git-graph` | Toggles a side pane showing the working directory's git log as a graph |
 | `pii-guard` | — | Checks each prompt for personal data before it is sent: blocks Korean unique identifiers, asks before sending phone numbers, emails, cards, accounts, addresses and attachments |
+| `session-outputs` | `/outputs` | Toggles a pane listing what the current session produced — PRs, branches, Jira/Notion/Confluence/Slack links, edited files, scratchpad files — grouped by kind |
 | `todo-band` | `/todo`, `/auto-todo` | Toggles a pane showing the session scratchpad's `TODO.jsonl` (or `TODO.md`); its `todo-plan` skill has Claude keep the plan there with dependencies, and `/auto-todo` has Claude keep it up to date on every request |
 | `herdr-screenshot` | — | Its `herdr-screenshot` skill saves a Herdr pane's screen as a PNG by rendering the pane's ANSI dump in headless Chrome |
 
-Both panes stay closed until you run the command; running it again closes the pane.
+The panes stay closed until you run the command; running it again closes the pane.
 
 ## todo-band: `TODO.jsonl`
 
@@ -56,6 +57,23 @@ cap.sh [--pane <id>] [--out <png|dir>] [--title <text>] [--lines N]
 - 측정 패스로 콘텐츠 크기를 잰 뒤 그 크기로 2배 해상도 스크린샷을 찍으므로 넓은 pane 도 잘리지 않는다
 - 필요: Google Chrome, 폰트 `D2KodingLigature Nerd Font` (한글 2칸 정렬용)
 
+## session-outputs: 세션 산출물 뷰어
+
+`/outputs` 로 pane 을 열고 닫는다. 현재 진행 중인 세션의 transcript(`~/.claude/projects/<slug>/<session id>.jsonl`)와 scratchpad 를 읽어 종류별로 묶어 보여준다. 다른 세션의 산출물은 보이지 않는다.
+
+| 종류 | 출처 |
+|---|---|
+| PR · Branch | `github.com/.../pull/N` URL, `git checkout -b`·`git worktree add -b`·`git push -u` 명령, `pull/new/<branch>` URL, 세션 중 checkout 된 branch |
+| Jira · Confluence · Notion · Slack · GitHub · Web | 사용자·assistant 의 글, 도구 입력(MCP 호출 포함), `git`·`gh` 명령의 입출력에 나온 URL |
+| File | `Write`·`Edit`·`NotebookEdit` 로 만든 파일 (지금 없으면 `(deleted)`) |
+| Scratch | 세션 scratchpad 의 파일 (`/tmp` 라 재부팅 후에는 사라진다) |
+
+- `r` 로 다시 읽는다. 열려 있으면 10초마다 갱신한다
+- pane 에 포커스가 있을 때 `j`/`k` 로 한 item 씩 이동하고, `c` 는 선택한 item 의 이름, `p` 는 경로(파일은 절대 경로, 링크는 URL, URL 없는 branch 는 이름)를 클립보드에 복사한다
+- 4 MiB 가 넘는 transcript 는 `tail -c` 로 나눠 읽는다 (`$.fs.read` 상한)
+- 링크·파일은 클릭하면 열린다 (OSC 8 hyperlink)
+- attribution 링크(`claude.ai/code/session_…`, `claude.com/claude-code`), `api.*` 엔드포인트, Read·WebFetch 등 도구 결과 속 URL 은 잡음이라 제외한다
+
 ## Install
 
 In a Claude Code terminal session:
@@ -65,6 +83,7 @@ In a Claude Code terminal session:
 /plugin install todo-band --marketplace binarythink/claude-marketplace
 /plugin install pii-guard --marketplace binarythink/claude-marketplace
 /plugin install herdr-screenshot --marketplace binarythink/claude-marketplace
+/plugin install session-outputs --marketplace binarythink/claude-marketplace
 ```
 
 Answer `y` to add the marketplace, then pick a scope.
@@ -77,6 +96,7 @@ claude plugin install git-graph@binarythink
 claude plugin install todo-band@binarythink
 claude plugin install pii-guard@binarythink
 claude plugin install herdr-screenshot@binarythink
+claude plugin install session-outputs@binarythink
 ```
 
 ## Update
