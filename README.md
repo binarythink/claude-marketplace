@@ -7,6 +7,7 @@ Personal [Claude Code](https://code.claude.com) mods.
 | `git-graph` | `/git-graph` | Toggles a side pane showing the working directory's git log as a graph |
 | `pii-guard` | — | Checks each prompt for personal data before it is sent: blocks Korean unique identifiers, asks before sending phone numbers, emails, cards, accounts, addresses and attachments |
 | `todo-band` | `/todo` | Toggles a pane showing the session scratchpad's `TODO.jsonl` (or `TODO.md`); its `todo-plan` skill has Claude keep the plan there with dependencies |
+| `herdr-screenshot` | — | Its `herdr-screenshot` skill saves a Herdr pane's screen as a PNG by rendering the pane's ANSI dump in headless Chrome |
 
 Both panes stay closed until you run the command; running it again closes the pane.
 
@@ -35,6 +36,18 @@ The `todo-plan` skill has Claude write one JSON object per line to the session s
 - 물어볼 수 없는 경우(`-p`, SDK)나 검사 중 오류가 나면 보내지 않는다(fail-closed).
 - 모델이 도구로 읽는 파일·명령 출력은 검사하지 않는다. 첨부 이미지·문서는 내용 검사 없이 확인만 한다.
 
+## herdr-screenshot: pane 화면 PNG 저장
+
+Herdr pane 안에서 "이 화면 캡처해줘" 처럼 요청하면 스킬이 `scripts/cap.sh` 를 실행한다.
+
+```sh
+cap.sh [--pane <id>] [--out <png|dir>] [--title <text>] [--lines N]
+```
+
+- 기본은 현재 pane(`$HERDR_PANE_ID`)의 보이는 화면. `--lines N` 이면 scrollback 포함
+- 측정 패스로 콘텐츠 크기를 잰 뒤 그 크기로 2배 해상도 스크린샷을 찍으므로 넓은 pane 도 잘리지 않는다
+- 필요: Google Chrome, 폰트 `D2KodingLigature Nerd Font` (한글 2칸 정렬용)
+
 ## Install
 
 In a Claude Code terminal session:
@@ -43,6 +56,7 @@ In a Claude Code terminal session:
 /plugin install git-graph --marketplace binarythink/claude-marketplace
 /plugin install todo-band --marketplace binarythink/claude-marketplace
 /plugin install pii-guard --marketplace binarythink/claude-marketplace
+/plugin install herdr-screenshot --marketplace binarythink/claude-marketplace
 ```
 
 Answer `y` to add the marketplace, then pick a scope.
@@ -54,6 +68,7 @@ claude plugin marketplace add binarythink/claude-marketplace
 claude plugin install git-graph@binarythink
 claude plugin install todo-band@binarythink
 claude plugin install pii-guard@binarythink
+claude plugin install herdr-screenshot@binarythink
 ```
 
 ## Update

@@ -1,0 +1,5 @@
+{
+  "name": "herdr-screenshot",
+  "version": "0.1.0",
+  "description": "Saves a Herdr pane's terminal screen as a PNG by rendering its ANSI dump in headless Chrome"
+}

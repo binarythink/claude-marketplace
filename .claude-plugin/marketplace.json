@@ -5,6 +5,7 @@
   "plugins": [
     { "name": "todo-band", "source": "./todo-band", "description": "Shows the session scratchpad's TODO.md in a pane (/todo)" },
     { "name": "git-graph", "source": "./git-graph", "description": "Shows the working directory's git log as a graph in a side pane (/git-graph)" },
-    { "name": "pii-guard", "source": "./pii-guard", "description": "Checks a prompt for personal data before it is sent: blocks unique identifiers, asks before sending the rest" }
+    { "name": "pii-guard", "source": "./pii-guard", "description": "Checks a prompt for personal data before it is sent: blocks unique identifiers, asks before sending the rest" },
+    { "name": "herdr-screenshot", "source": "./herdr-screenshot", "description": "Saves a Herdr pane's screen as a PNG (ANSI dump rendered in headless Chrome)" }
   ]
 }
