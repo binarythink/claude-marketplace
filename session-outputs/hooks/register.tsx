@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiPressArgument } from 'claude-code'
 
-import type { Artifact, ArtifactIndex, ArtifactKind } from '../types'
+import type { Artifact, ArtifactIndex, ArtifactKind, ArtifactSource } from '../types'
 import type { ParsedTranscript } from './parse'
 import {
-  KIND_LABELS, KIND_ORDER, clockTime, displayPath, parseTranscript, parseWorktrees, slugOf, spanOf,
+  KIND_LABELS, clockTime, dirOf, displayPath, parseTranscript, parseWorktrees, slugOf, spanOf,
 } from './parse'
 
 const PANE = 'session-outputs'
@@ -16,8 +16,14 @@ const SCRATCH_DEPTH = 2
 const READ_LIMIT = 4 * 1024 * 1024
 
 const indexAtom = atom({ plugin: 'session-outputs', key: 'index' } as const, {} as ArtifactIndex)
-// j/k 로 고르는 item 의 순번. 화면에 그린 순서(종류별 묶음) 기준이다.
+// j/k 로 고르는 item 의 순번. 화면에 그린 순서(출처별 묶음) 기준이다.
 const selectedAtom = atom({ plugin: 'session-outputs', key: 'selected' } as const, 0)
+
+// 그룹을 그리는 순서와 제목
+const GROUPS: { source: ArtifactSource; title: string }[] = [
+  { source: 'output', title: 'output' },
+  { source: 'input', title: 'input' },
+]
 
 const KIND_COLORS: Record<ArtifactKind, string> = {
   pr: 'green',
@@ -134,19 +140,19 @@ async function buildIndex($: EngineInterface): Promise<ArtifactIndex> {
   if (!transcript) return { loadedAt: Date.now() }
 
   const parsed = await readTranscript($, transcript.path, transcript.mtimeMs, transcript.size)
-  const artifacts: Artifact[] = [
-    ...parsed.links,
-    ...parsed.branches.map(name => ({ kind: 'branch' as const, label: name })),
-  ]
-  // scratchpad 에 쓴 파일은 아래 Scratch 로 보인다.
-  for (const path of parsed.files) {
-    if (path.includes(`/${id}/scratchpad/`)) continue
-    const exists = await $.fs.exists(path).catch(() => false)
+  const artifacts: Artifact[] = []
+  for (const one of parsed.artifacts) {
+    if (one.kind !== 'file' || !one.path) {
+      artifacts.push(one)
+      continue
+    }
+    // scratchpad 에 쓴 파일은 아래 Scratch 로 보인다.
+    if (one.path.includes(`/${id}/scratchpad/`)) continue
+    const exists = await $.fs.exists(one.path).catch(() => false)
     artifacts.push({
-      kind: 'file',
-      label: displayPath(path, roots, home),
-      href: exists ? `file://${path}` : undefined,
-      path,
+      ...one,
+      displayPath: displayPath(one.path, roots, home),
+      href: exists ? `file://${one.path}` : undefined,
       isGone: !exists,
     })
   }
@@ -155,7 +161,15 @@ async function buildIndex($: EngineInterface): Promise<ArtifactIndex> {
       const pad = `${base}/${slug}/${id}/scratchpad`
       if (!(await $.fs.exists(pad).catch(() => false))) continue
       for (const name of await scratchFiles($, pad)) {
-        artifacts.push({ kind: 'scratch', label: name, href: `file://${pad}/${name}`, path: `${pad}/${name}` })
+        const path = `${pad}/${name}`
+        artifacts.push({
+          kind: 'scratch',
+          label: name.split('/').pop() ?? name,
+          href: `file://${path}`,
+          path,
+          displayPath: displayPath(path, roots, home),
+          source: 'output',
+        })
       }
       break scratch
     }
@@ -192,9 +206,13 @@ async function refresh($: EngineInterface): Promise<ArtifactIndex | undefined> {
   }
 }
 
-// 화면에 그리는 순서: 종류별로 묶고, 한 종류 안에서는 세션에 처음 나온 순서.
+// 화면에 그리는 순서: 출처별로 묶고, 한 그룹 안에서는 세션에 처음 나온 순서(scratchpad 파일은 맨 끝).
 const orderOf = (artifacts: Artifact[]) =>
-  KIND_ORDER.flatMap(kind => artifacts.filter(one => one.kind === kind))
+  GROUPS.flatMap(group => artifacts.filter(one => one.source === group.source))
+
+// 행의 path 칸: 파일은 줄인 경로, 링크는 URL. URL 없는 branch 는 비운다.
+// 파일은 name 칸이 이미 파일 이름이라 폴더만 보인다.
+const locationOf = (one: Artifact) => (one.displayPath === undefined ? one.href : dirOf(one.displayPath))
 
 // p 가 복사하는 값: 파일은 절대 경로, 링크는 URL, URL 없는 branch 는 이름.
 const pathOf = (one: Artifact) => one.path ?? one.href ?? one.label
@@ -268,17 +286,32 @@ export const register: Register = on => {
       await $.ui.toast(isCopied ? `Copied ${what}: ${text}` : `Could not copy the ${what}`)
     }
 
-    const target = (one: Artifact) => one.href && !one.isGone
-      ? <Link href={one.href}>{one.label}</Link>
-      : <Text dimColor strikethrough={one.isGone}>{one.isGone ? `${one.label} (deleted)` : one.label}</Text>
+    const name = (one: Artifact) => one.isGone
+      ? <Text dimColor strikethrough>{`${one.label} (deleted)`}</Text>
+      : <Text>{one.label}</Text>
+    // path 칸은 흐리게 그린다. 링크는 URL 칸 자체를 Link 로 둔다. OSC 8 을 못 그리는 터미널은
+    // Link 글자 뒤에 URL 을 덧붙이므로, 글자 없이 href 만 주어야 URL 이 한 번만 보인다.
+    // 파일은 같은 이유로 Link 를 쓰지 않는다(폴더 뒤에 file:// URL 이 붙는다).
+    const location = (one: Artifact) => {
+      const text = locationOf(one)
+      if (!text) return null
+      return (
+        <Text dimColor>
+          {'  '}
+          {one.displayPath === undefined && one.href ? <Link href={one.href} /> : text}
+        </Text>
+      )
+    }
 
+    // 행은 type, name, path 순이다. type 칸은 이 pane 에 보이는 가장 긴 종류 이름에 맞춘다.
+    const typeWidth = Math.max(0, ...items.map(one => KIND_LABELS[one.kind].length))
     let n = 0
-    const groups = KIND_ORDER.flatMap(kind => {
-      const rows = items.filter(one => one.kind === kind)
+    const groups = GROUPS.flatMap(group => {
+      const rows = items.filter(one => one.source === group.source)
       if (rows.length === 0) return []
       return [(
-        <Box key={`k-${kind}`} flexDirection="column" marginTop={1}>
-          <Text bold color={KIND_COLORS[kind]}>{`▸ ${KIND_LABELS[kind]} (${rows.length})`}</Text>
+        <Box key={`g-${group.source}`} flexDirection="column" marginTop={1}>
+          <Text bold>{`▸ ${group.title} (${rows.length})`}</Text>
           {rows.map(one => {
             const at = n++
             const isSelected = at === selected
@@ -286,7 +319,9 @@ export const register: Register = on => {
               <Box key={itemKey(at)}>
                 <Text wrap="truncate-end">
                   <Text color="cyan" bold>{isSelected ? '› ' : '  '}</Text>
-                  {isSelected ? <Text inverse>{target(one)}</Text> : target(one)}
+                  <Text color={KIND_COLORS[one.kind]}>{`${KIND_LABELS[one.kind].padEnd(typeWidth)}  `}</Text>
+                  {isSelected ? <Text inverse>{name(one)}</Text> : name(one)}
+                  {location(one)}
                 </Text>
               </Box>
             )

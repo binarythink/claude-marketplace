@@ -53,7 +53,7 @@ function setup(on: On, tabs: string[]) {
   on('session.cwd', () => ({ value: ROOT }))
 }
 
-test('toggles a pane grouping only the current session’s artifacts by kind', async ($, on) => {
+test('toggles a pane grouping only the current session’s artifacts by source', async ($, on) => {
   const clock = mock.clock(on)
   const tabs: string[] = []
   setup(on, tabs)
@@ -111,55 +111,82 @@ test('toggles a pane grouping only the current session’s artifacts by kind', a
     requestId: 'session-outputs',
   } as never)
 
-  const drawn = (await ui.findAll({ type: 'Text' })).map(one => one.text).join('\n')
-  for (const header of ['▸ PR (1)', '▸ Branch (1)', '▸ Jira (1)', '▸ File (2)', '▸ Scratch (2)']) {
-    expect(drawn).toContain(header)
-  }
+  const texts = await ui.findAll({ type: 'Text' })
+  const drawn = texts.map(one => one.text).join('\n')
+  expect(drawn).toContain('▸ input (1)')
+  expect(drawn).toContain('▸ output (6)')
+  expect(drawn.indexOf('▸ output')).toBeLessThan(drawn.indexOf('▸ input'))
+  expect(drawn).not.toContain('▸ PR')
   expect(drawn).toContain('now work')
-  expect(drawn).toContain('gone.ts (deleted)')
-  expect(drawn).toContain('feat/now')
+
+  // 행은 type, name, path 순이다. 같은 그룹 안에서 파일과 링크가 처음 나온 순서대로 섞인다.
+  const rows = texts
+    .filter(one => one.props.wrap === 'truncate-end' && /^(› |  )\S/.test(one.text))
+    .map(one => one.text)
+  // 파일의 path 칸은 폴더만 보인다(이름은 name 칸에 있다).
+  const expected: [string, string, string?][] = [
+    ['File', 'a.ts', 'mod'],
+    ['File', 'gone.ts (deleted)', '.'],
+    ['PR', 'o/r#4', 'https://github.com/o/r/pull/4'],
+    ['Branch', 'feat/now'],
+    ['Scratch', 'notes.md', PAD],
+    ['Scratch', 'p1.png', `${PAD}/shot`],
+    ['Jira', 'ABC-1', 'https://vroong-jira.atlassian.net/browse/ABC-1'],
+  ]
+  expect(rows).toHaveLength(expected.length)
+  expected.forEach(([type, name, path], i) => {
+    expect(rows[i]!.slice(2)).toStartWith(`${type.padEnd('Scratch'.length)}  ${name}`)
+    // 테스트 렌더러는 Link 의 text 를 href 와 글자를 이어 붙여 만든다.
+    if (path) expect(rows[i]).toContain(`${name}  `)
+    expect(rows[i]).toEndWith(path ?? name)
+  })
+  // path 칸은 흐리게 그린다. 링크만 Link 이고, 파일은 Link 를 쓰지 않는다.
+  expect(texts.filter(one => one.props.dimColor).map(one => one.text)).toEqual(expect.arrayContaining([
+    '  mod', '  .', `  ${PAD}`, `  ${PAD}/shot`,
+  ]))
   expect((await ui.findAll({ type: 'Link' })).map(one => one.props.href)).toEqual([
     'https://github.com/o/r/pull/4',
     'https://vroong-jira.atlassian.net/browse/ABC-1',
-    `file://${ROOT}/mod/a.ts`,
-    `file://${PAD}/notes.md`,
-    `file://${PAD}/shot/p1.png`,
   ])
 
   // j/k 로 한 item 씩 움직이고 c 는 이름, p 는 경로(링크는 URL, 파일은 절대 경로)를 복사한다.
   const selectedText = async () =>
     (await ui.findAll({ type: 'Text' })).find(one => one.props.inverse)?.text
 
+  expect(await selectedText()).toEndWith('a.ts')
+  await ui.press({ key: 'copy-name' })
+  await ui.press({ key: 'copy-path' })
+  expect(copied.slice(-2)).toEqual(['a.ts', `${ROOT}/mod/a.ts`])
+  expect(toasts.at(-1)).toContain(`Copied path: ${ROOT}/mod/a.ts`)
+
+  await ui.press({ key: 'prev' })
+  expect(await selectedText()).toEndWith('a.ts')
+
+  // a.ts → gone.ts → PR
+  for (let i = 0; i < 2; i++) await ui.press({ key: 'next' })
   expect(await selectedText()).toEndWith('o/r#4')
   await ui.press({ key: 'copy-path' })
   expect(copied.at(-1)).toBe('https://github.com/o/r/pull/4')
 
-  await ui.press({ key: 'prev' })
-  expect(await selectedText()).toEndWith('o/r#4')
-
-  // PR → Branch → Jira → File(a.ts) 순서
-  for (let i = 0; i < 3; i++) await ui.press({ key: 'next' })
-  expect(await selectedText()).toEndWith('mod/a.ts')
-  await ui.press({ key: 'copy-name' })
-  await ui.press({ key: 'copy-path' })
-  expect(copied.slice(-2)).toEqual(['mod/a.ts', `${ROOT}/mod/a.ts`])
-  expect(toasts.at(-1)).toContain(`Copied path: ${ROOT}/mod/a.ts`)
-
-  // 끝에서 더 내려가도 마지막 item 에 머문다.
+  // 끝에서 더 내려가도 마지막 item 에 머문다. output 그룹 다음이 input 그룹이다.
   for (let i = 0; i < 10; i++) await ui.press({ key: 'next' })
-  expect(await selectedText()).toEndWith('shot/p1.png')
+  expect(await selectedText()).toEndWith('ABC-1')
   await ui.press({ key: 'copy-path' })
-  expect(copied.at(-1)).toBe(`${PAD}/shot/p1.png`)
+  expect(copied.at(-1)).toBe('https://vroong-jira.atlassian.net/browse/ABC-1')
 
   // 다시 그리기 전에 연달아 눌러도 누른 만큼 움직인다.
   await Promise.all([1, 2, 3].map(() => ui.press({ key: 'prev' })))
-  expect(await selectedText()).toEndWith('mod/a.ts')
+  expect(await selectedText()).toEndWith('feat/now')
 
   // branch 는 URL 이 없으면 이름을 경로로 복사한다.
-  for (let i = 0; i < 2; i++) await ui.press({ key: 'prev' })
-  expect(await selectedText()).toEndWith('feat/now')
   await ui.press({ key: 'copy-path' })
   expect(copied.at(-1)).toBe('feat/now')
+
+  // scratchpad 파일은 절대 경로를 복사한다.
+  await ui.press({ key: 'next' })
+  expect(await selectedText()).toEndWith('notes.md')
+  await ui.press({ key: 'copy-path' })
+  expect(copied.at(-1)).toBe(`${PAD}/notes.md`)
 
   expect(await $.command.run(RUN)).toMatchObject({ text: 'Session outputs pane closed.' })
   expect(tabs).toEqual([])

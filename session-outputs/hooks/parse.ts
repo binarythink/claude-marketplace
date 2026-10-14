@@ -1,8 +1,7 @@
-import type { Artifact, ArtifactKind } from '../types'
+import type { Artifact, ArtifactKind, ArtifactSource } from '../types'
 
-export const KIND_ORDER: ArtifactKind[] = [
-  'pr', 'branch', 'jira', 'notion', 'confluence', 'slack', 'github', 'web', 'file', 'scratch',
-]
+// URL 하나를 분류한 결과. 어디서 나왔는지(source)는 수집하는 쪽이 붙인다.
+export type Link = Omit<Artifact, 'source'>
 
 export const KIND_LABELS: Record<ArtifactKind, string> = {
   pr: 'PR',
@@ -63,7 +62,7 @@ export const extractUrls = (text: string): string[] =>
   (text.match(URL_RE) ?? []).map(raw => raw.replace(TRAILING_RE, ''))
 
 // URL 하나를 산출물로 분류한다. 잡음이거나 URL 이 아니면 undefined.
-export function classifyUrl(raw: string): Artifact | undefined {
+export function classifyUrl(raw: string): Link | undefined {
   let url: URL
   try {
     url = new URL(raw)
@@ -137,9 +136,9 @@ export type ParsedTranscript = {
   startedAt?: number
   endedAt?: number
   cwd?: string
-  links: Artifact[]
-  files: string[]
-  branches: string[]
+  // 링크·branch·file 을 처음 수집된 순서대로. 같은 항목이 다시 나와도 처음 출처를 유지한다.
+  // file 의 path 는 절대 경로이고, displayPath·href·isGone 은 register 가 채운다.
+  artifacts: Artifact[]
 }
 
 type Block = {
@@ -164,41 +163,48 @@ const resultText = (content: unknown): string => {
 
 // PR·branch URL 을 남기는 명령. 다른 Bash 명령(grep, cat, 스크립트)의 입출력에 든 URL 은 잡음이다.
 const GIT_COMMAND_RE = /(^|[\s;&|(])(gh|git)\s/
+// 출력에 새로 만든 것의 URL 을 찍는 git·gh 명령. gh pr view·gh api·git log 같은 조회 명령의 출력은
+// PR 본문·커밋 메시지에 든 참고 링크라 보지 않는다.
+const CREATING_COMMAND_RE =
+  /(^|[\s;&|(])(gh\s+(pr|issue|release)\s+create|git\s+(-C\s+\S+\s+)?push)(\s|$)/
+// git·gh 명령의 입출력에서는 GitHub 링크만 남긴다. PR 본문(--body)이나 출력에 든 Jira·Notion 링크는 참고 자료다.
+const GIT_KINDS = new Set<ArtifactKind>(['pr', 'branch', 'github'])
 
 // 세션 transcript(JSONL) 한 파일에서 제목·기간·링크·파일·branch 를 모은다.
-// 링크는 사용자·assistant 의 글, Bash 가 아닌 도구 입력, git·gh 명령의 입출력에서만 찾는다.
+// 링크는 사용자·assistant 의 글, Bash 가 아닌 도구 입력, git·gh 명령의 입력과 산출물을 만드는 명령의 출력에서만 찾는다.
 // 다른 도구 결과(Read, WebFetch, MCP)는 잡음이 많아 보지 않는다.
 // transcript 의 gitBranch 는 그때 checkout 된 branch 일 뿐이라, 다른 산출물이 있는 세션에서만 남긴다.
 export function parseTranscript(text: string): ParsedTranscript {
-  const parsed: ParsedTranscript = { links: [], files: [], branches: [] }
-  const seenLinks = new Set<string>()
-  const seenFiles = new Set<string>()
-  const seenBranches = new Set<string>()
-  const gitToolIds = new Set<string>()
+  const parsed: ParsedTranscript = { artifacts: [] }
+  // 링크는 href, branch 는 이름, file 은 경로로 같은 항목을 가린다.
+  const seen = new Map<string, Artifact>()
+  const creatingToolIds = new Set<string>()
   const checkedOut: string[] = []
 
-  const addUrls = (source: string) => {
-    for (const raw of extractUrls(source)) {
-      const artifact = classifyUrl(raw)
-      if (!artifact) continue
-      const key = artifact.href ?? artifact.label
-      if (artifact.kind === 'branch') {
-        addBranch(artifact.label)
-      } else if (!seenLinks.has(key)) {
-        seenLinks.add(key)
-        parsed.links.push(artifact)
-      }
+  const add = (key: string, artifact: Artifact) => {
+    const known = seen.get(key)
+    if (known) {
+      // git push 로 URL 이 나중에 생긴 branch 는 처음 출처를 둔 채 URL 만 채운다.
+      known.href ??= artifact.href
+      return
+    }
+    seen.set(key, artifact)
+    parsed.artifacts.push(artifact)
+  }
+  const addUrls = (text: string, source: ArtifactSource, kinds?: Set<ArtifactKind>) => {
+    for (const raw of extractUrls(text)) {
+      const link = classifyUrl(raw)
+      if (!link || (kinds && !kinds.has(link.kind))) continue
+      if (link.kind === 'branch') addBranch(link.label, source, link.href)
+      else add(`link:${link.href ?? link.label}`, { ...link, source })
     }
   }
-  const addBranch = (name: string | undefined) => {
-    if (!isWorkBranch(name) || seenBranches.has(name)) return
-    seenBranches.add(name)
-    parsed.branches.push(name)
+  const addBranch = (name: string | undefined, source: ArtifactSource, href?: string) => {
+    if (isWorkBranch(name)) add(`branch:${name}`, { kind: 'branch', label: name, href, source })
   }
   const addFile = (path: unknown) => {
-    if (typeof path !== 'string' || path === '' || seenFiles.has(path)) return
-    seenFiles.add(path)
-    parsed.files.push(path)
+    if (typeof path !== 'string' || path === '') return
+    add(`file:${path}`, { kind: 'file', label: path.split('/').pop() || path, path, source: 'output' })
   }
 
   for (const line of text.split('\n')) {
@@ -249,7 +255,7 @@ export function parseTranscript(text: string): ParsedTranscript {
         if (record.type === 'user' && parsed.firstPrompt === undefined && body && !body.startsWith('<')) {
           parsed.firstPrompt = body.split('\n')[0]!.trim()
         }
-        addUrls(body)
+        addUrls(body, record.type === 'user' ? 'input' : 'output')
       } else if (block.type === 'tool_use' && block.name) {
         const input = block.input ?? {}
         const pathKey = FILE_TOOLS[block.name]
@@ -260,20 +266,20 @@ export function parseTranscript(text: string): ParsedTranscript {
         if (block.name === 'Bash') {
           const command = typeof input.command === 'string' ? input.command : ''
           if (!GIT_COMMAND_RE.test(command)) continue
-          if (block.id) gitToolIds.add(block.id)
-          for (const name of branchesFromCommand(command)) addBranch(name)
-          addUrls(command)
+          if (block.id && CREATING_COMMAND_RE.test(command)) creatingToolIds.add(block.id)
+          for (const name of branchesFromCommand(command)) addBranch(name, 'output')
+          addUrls(command, 'output', GIT_KINDS)
           continue
         }
-        addUrls(JSON.stringify(input))
-      } else if (block.type === 'tool_result' && gitToolIds.has(block.tool_use_id ?? '')) {
-        addUrls(resultText(block.content))
+        addUrls(JSON.stringify(input), 'output')
+      } else if (block.type === 'tool_result' && creatingToolIds.has(block.tool_use_id ?? '')) {
+        addUrls(resultText(block.content), 'output', GIT_KINDS)
       }
     }
   }
 
-  if (parsed.links.length + parsed.files.length + parsed.branches.length > 0) {
-    for (const name of checkedOut) addBranch(name)
+  if (parsed.artifacts.length > 0) {
+    for (const name of checkedOut) addBranch(name, 'output')
   }
   return parsed
 }
@@ -306,6 +312,14 @@ export const slugOf = (path: string) => path.replace(/[^a-zA-Z0-9]/g, '-')
 // git worktree list --porcelain 의 worktree 경로들
 export const parseWorktrees = (stdout: string): string[] =>
   stdout.split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length).trim())
+
+// displayPath 결과에서 파일 이름을 뺀 폴더 부분. worktree root 의 파일은 '.', 다른 worktree 의 root 는 'x:' 이다.
+export function dirOf(path: string): string {
+  const slash = path.lastIndexOf('/')
+  if (slash >= 0) return path.slice(0, slash) || '/'
+  const colon = path.indexOf(':')
+  return colon >= 0 ? path.slice(0, colon + 1) : '.'
+}
 
 // 경로를 가장 긴 worktree 기준 상대 경로로 줄인다. 다른 worktree 면 그 폴더 이름을 앞에 붙이되,
 // '<main 폴더>-' 로 시작하면 그 부분은 뺀다 (repo-feature → feature:).
