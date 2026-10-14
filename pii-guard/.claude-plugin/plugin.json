@@ -1,0 +1,5 @@
+{
+  "name": "pii-guard",
+  "version": "0.1.0",
+  "description": "Checks a prompt for personal data before it is sent: blocks unique identifiers, asks before sending the rest"
+}
