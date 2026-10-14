@@ -110,7 +110,7 @@ test('prefers TODO.jsonl over TODO.md and draws its rows', async ($, on) => {
 
   const texts = (await ui.findAll({ type: 'Text' })).map(one => one.text)
   expect(texts).toEqual([
-    '1/5 done · 1 running · 1 waiting on user · 1 ready',
+    'auto ○ · 1/5 done · 1 running · 1 waiting on user · 1 ready',
     '✓ DDL 작성',
     '▶ API 구현  (agent running)',
     '⏸ dev1 배포  (waiting on user)',

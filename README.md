@@ -6,7 +6,7 @@ Personal [Claude Code](https://code.claude.com) mods.
 |---|---|---|
 | `git-graph` | `/git-graph` | Toggles a side pane showing the working directory's git log as a graph |
 | `pii-guard` | — | Checks each prompt for personal data before it is sent: blocks Korean unique identifiers, asks before sending phone numbers, emails, cards, accounts, addresses and attachments |
-| `todo-band` | `/todo` | Toggles a pane showing the session scratchpad's `TODO.jsonl` (or `TODO.md`); its `todo-plan` skill has Claude keep the plan there with dependencies |
+| `todo-band` | `/todo`, `/auto-todo` | Toggles a pane showing the session scratchpad's `TODO.jsonl` (or `TODO.md`); its `todo-plan` skill has Claude keep the plan there with dependencies, and `/auto-todo` has Claude keep it up to date on every request |
 | `herdr-screenshot` | — | Its `herdr-screenshot` skill saves a Herdr pane's screen as a PNG by rendering the pane's ANSI dump in headless Chrome |
 
 Both panes stay closed until you run the command; running it again closes the pane.
@@ -21,6 +21,14 @@ The `todo-plan` skill has Claude write one JSON object per line to the session s
 ```
 
 `status` is `todo`, `doing` (agent running it), `waiting` (waiting on the user to run or confirm something), `done` or `cancelled`. The pane orders items by `deps`, marks a `todo` whose deps are not all `done` as blocked, and flags broken lines, unknown deps and cycles. The full rules are in [`todo-band/skills/todo-plan/SKILL.md`](todo-band/skills/todo-plan/SKILL.md).
+
+### `/auto-todo [on|off]`
+
+Without auto-todo, `TODO.jsonl` exists only once Claude picks the `todo-plan` skill for a multi-step task, and later requests in the session go untracked. With `/auto-todo on`, every prompt you type carries a hidden instruction to keep `TODO.jsonl` current: work requests (edits, commands, investigation) are appended as items and their statuses updated; questions that need no work get none. If a turn edits files or runs commands but leaves `TODO.jsonl` untouched, the next prompt also carries a one-time reminder.
+
+- No argument toggles; the pane header shows `auto ●` (on) or `auto ○` (off).
+- The setting lasts for the session only. To start every session on, set the plugin option `autoTodoDefault` to `true` in `/config`.
+- `/auto-todo off` stops the instruction and tells Claude once to stop updating the file on its own; the file and the pane stay.
 
 ## pii-guard: 전송 전 개인정보 확인
 
