@@ -8,12 +8,18 @@ import { lookOf, parseTodoJsonl, summaryOf } from './parse'
 const todo = atom({ plugin: 'todo-band', key: 'todo' } as const, null)
 // 세션 한정 on/off. null 은 아직 정하지 않음 — session.start 가 userConfig 기본값으로 채운다.
 const autoTodo = atom({ plugin: 'todo-band', key: 'autoTodo' } as const, null)
+// 세션 한정. true 면 pane 에서 완료(done)·취소(cancelled) 항목을 숨긴다.
+const hideDone = atom({ plugin: 'todo-band', key: 'hideDone' } as const, false)
 
 const PANE = 'todo'
 const PANE_TITLE = 'TODO'
 // 앞의 것을 우선한다. TODO.jsonl 이 있으면 TODO.md 는 보지 않는다.
 const FILE_NAMES = ['TODO.jsonl', 'TODO.md']
 const POLL_MS = 2000
+const TOGGLE_KEY = 'toggle-done'
+const TOGGLE_HOTKEY = 'h'
+const isClosed = (status: string) => status === 'done' || status === 'cancelled'
+const isDoneLine = (line: string) => /^\s*[-*]\s+\[[xX]\]/.test(line)
 const JSONL = 'TODO.jsonl'
 // 이 도구를 쓴 턴은 작업을 한 턴으로 보고, TODO.jsonl 이 그대로면 다음 프롬프트에 리마인더를 붙인다.
 const WORK_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
@@ -219,15 +225,33 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
     const file = await read($, todo)
     const auto = (await read($, autoTodo)) === true ? 'auto ●' : 'auto ○'
+    const isHidingDone = (await read($, hideDone)) === true
+    // 라벨은 숨긴 개수에 따라 바뀌므로 주소는 key 로 고정한다.
+    const toggle = (closedCount: number) => (
+      <Button
+        key={TOGGLE_KEY}
+        plain
+        dimColor
+        hotkey={TOGGLE_HOTKEY}
+        label={isHidingDone ? `show done (${closedCount})` : 'hide done'}
+        onPress={() => update($, hideDone, value => !value)}
+      />
+    )
 
     if (file?.format === 'jsonl') {
+      const closedCount = file.rows.filter(row => isClosed(row.status)).length
+      const rows = isHidingDone ? file.rows.filter(row => !isClosed(row.status)) : file.rows
       return (
         <Box flexDirection="column">
-          <Text bold>{`${auto} · ${file.rows.length === 0 ? 'No items in TODO.jsonl.' : summaryOf(file.rows)}`}</Text>
-          {file.rows.map(row => {
+          <Box flexDirection="row" gap={2}>
+            <Text bold>{`${auto} · ${file.rows.length === 0 ? 'No items in TODO.jsonl.' : summaryOf(file.rows)}`}</Text>
+            {file.rows.length > 0 && toggle(closedCount)}
+          </Box>
+          {file.rows.length > 0 && rows.length === 0 && <Text dimColor>All items are done.</Text>}
+          {rows.map(row => {
             const look = lookOf(row)
             return (
               <Box flexDirection="column">
@@ -251,13 +275,18 @@ export const register: Register = (on, options) => {
       )
     }
 
-    const lines = file?.text.split('\n').filter(line => line.trim() !== '') ?? []
+    const allLines = file?.text.split('\n').filter(line => line.trim() !== '') ?? []
+    const closedCount = allLines.filter(isDoneLine).length
+    const lines = isHidingDone ? allLines.filter(line => !isDoneLine(line)) : allLines
     return (
       <Box flexDirection="column">
-        <Text dimColor>{auto}</Text>
-        {lines.length === 0 && <Text dimColor>No TODO.jsonl or TODO.md in this session's scratchpad.</Text>}
+        <Box flexDirection="row" gap={2}>
+          <Text dimColor>{auto}</Text>
+          {allLines.length > 0 && toggle(closedCount)}
+        </Box>
+        {allLines.length === 0 && <Text dimColor>No TODO.jsonl or TODO.md in this session's scratchpad.</Text>}
         {lines.map(line => {
-          const isDone = /^\s*[-*]\s+\[[xX]\]/.test(line)
+          const isDone = isDoneLine(line)
           const isHeading = /^\s*#/.test(line)
           return (
             <Text dimColor={isDone} strikethrough={isDone} bold={isHeading} wrap="truncate-end">
