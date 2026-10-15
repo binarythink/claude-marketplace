@@ -23,6 +23,8 @@ The `todo-plan` skill has Claude write one JSON object per line to the session s
 
 `status` is `todo`, `doing` (agent running it), `waiting` (waiting on the user to run or confirm something), `done` or `cancelled`. The pane orders items by `deps`, marks a `todo` whose deps are not all `done` as blocked, and flags broken lines, unknown deps and cycles. The full rules are in [`todo-band/skills/todo-plan/SKILL.md`](todo-band/skills/todo-plan/SKILL.md).
 
+The `hide done` button in the pane's header (or `h` while the pane has focus) hides `done` and `cancelled` items (in `TODO.md`, `- [x]` lines) for the rest of the session; press `show done (N)` to bring them back.
+
 ### `/auto-todo [on|off]`
 
 Without auto-todo, `TODO.jsonl` exists only once Claude picks the `todo-plan` skill for a multi-step task, and later requests in the session go untracked. With `/auto-todo on`, every prompt you type carries a hidden instruction to keep `TODO.jsonl` current: work requests (edits, commands, investigation) are appended as items and their statuses updated; questions that need no work get none. If a turn edits files or runs commands but leaves `TODO.jsonl` untouched, the next prompt also carries a one-time reminder.
