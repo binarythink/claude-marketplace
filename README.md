@@ -23,7 +23,7 @@ The `todo-plan` skill has Claude write one JSON object per line to the session s
 
 `status` is `todo`, `doing` (agent running it), `waiting` (waiting on the user to run or confirm something), `done` or `cancelled`. The pane orders items by `deps`, marks a `todo` whose deps are not all `done` as blocked, and flags broken lines, unknown deps and cycles. The full rules are in [`todo-band/skills/todo-plan/SKILL.md`](todo-band/skills/todo-plan/SKILL.md).
 
-The `hide done` button in the pane's header (or `h` while the pane has focus) hides `done` and `cancelled` items (in `TODO.md`, `- [x]` lines) for the rest of the session; press `show done (N)` to bring them back.
+The `hide done` button in the pane's header (or `h` while the pane has focus) hides `done` and `cancelled` items (in `TODO.md`, `- [x]` lines) for the rest of the session; press `show done (N)` to bring them back. `show keys` (or `k`) prefixes each `TODO.jsonl` row with its `id`, e.g. `▶ [api] Implement API`; `hide keys` turns it off.
 
 ### `/auto-todo [on|off]`
 

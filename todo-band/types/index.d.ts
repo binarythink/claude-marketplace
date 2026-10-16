@@ -20,6 +20,7 @@ declare module 'claude-code' {
   interface PluginState {
     // autoTodo: 세션 한정 on/off, null 은 session.start 가 아직 기본값을 넣지 않은 상태
     // hideDone: 세션 한정, pane 에서 done·cancelled 항목(TODO.md 는 [x] 줄)을 숨기는지
-    'todo-band': { todo: TodoFile | null; autoTodo: boolean | null; hideDone: boolean }
+    // showKeys: 세션 한정, pane 에서 TODO.jsonl 행 앞에 항목 id 를 보여주는지
+    'todo-band': { todo: TodoFile | null; autoTodo: boolean | null; hideDone: boolean; showKeys: boolean }
   }
 }

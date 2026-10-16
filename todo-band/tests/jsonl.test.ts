@@ -170,3 +170,55 @@ test('hides and shows done and cancelled rows with the toggle button', async ($,
   expect(await label()).toBe('hide done')
   expect(await rowTexts()).toContain('✗ 배치 연동  (cancelled)')
 })
+
+test('shows and hides item ids with the keys toggle button', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, {})
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', () => ({ value: { command: 'todo' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('session.id', () => ({ value: SESSION }))
+  on('session.root', () => ({ value: '/Users/me/proj' }))
+  on('session.cwd', () => ({ value: '/Users/me/proj' }))
+  on('fs.list', (_$, e) => ({ value: e.path === '/private/tmp' ? [dir('claude-501')] : [] }))
+  on('fs.exists', (_$, e) => ({ value: e.path === PAD }))
+  on('fs.stat', (_$, e) => {
+    if (e.path !== JSONL) throw new Error('ENOENT')
+    return { value: { kind: 'file' as const, size: 10, mtimeMs: 1, isLink: false } }
+  })
+  on('fs.read', () => ({ value: PLAN }))
+
+  await $.session.start({ cwd: '/Users/me/proj', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  await $.command.run(RUN)
+
+  const ui = await $.ui.mount({
+    plugin: 'todo-band',
+    surface: 'terminal',
+    component: 'Pane',
+    props: { title: 'TODO' },
+    requestId: 'todo',
+  } as never)
+  const rowTexts = async () => (await ui.findAll({ type: 'Text' })).map(one => one.text).slice(1)
+  const label = async () => (await ui.find({ key: 'toggle-keys' }) as { props: { label?: string } }).props.label
+
+  expect(await label()).toBe('show keys')
+  expect(await rowTexts()).toContain('✓ DDL 작성')
+
+  await ui.press({ key: 'toggle-keys' })
+  expect(await label()).toBe('hide keys')
+  expect(await rowTexts()).toEqual([
+    '✓ [schema] DDL 작성',
+    '▶ [api] API 구현  (agent running)',
+    '⏸ [deploy] dev1 배포  (waiting on user)',
+    '    사용자가 ArgoCD sync',
+    '◌ [test] 통합 테스트  (after api, deploy)',
+    '○ [docs] 문서',
+    '✗ [batch] 배치 연동  (cancelled)',
+  ])
+
+  await ui.press({ key: 'toggle-keys' })
+  expect(await label()).toBe('show keys')
+  expect(await rowTexts()).toContain('▶ API 구현  (agent running)')
+})

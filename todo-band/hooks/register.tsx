@@ -10,6 +10,8 @@ const todo = atom({ plugin: 'todo-band', key: 'todo' } as const, null)
 const autoTodo = atom({ plugin: 'todo-band', key: 'autoTodo' } as const, null)
 // 세션 한정. true 면 pane 에서 완료(done)·취소(cancelled) 항목을 숨긴다.
 const hideDone = atom({ plugin: 'todo-band', key: 'hideDone' } as const, false)
+// 세션 한정. true 면 TODO.jsonl 행 앞에 항목 id(key)를 보여준다.
+const showKeys = atom({ plugin: 'todo-band', key: 'showKeys' } as const, false)
 
 const PANE = 'todo'
 const PANE_TITLE = 'TODO'
@@ -18,6 +20,8 @@ const FILE_NAMES = ['TODO.jsonl', 'TODO.md']
 const POLL_MS = 2000
 const TOGGLE_KEY = 'toggle-done'
 const TOGGLE_HOTKEY = 'h'
+const KEYS_TOGGLE_KEY = 'toggle-keys'
+const KEYS_TOGGLE_HOTKEY = 'k'
 const isClosed = (status: string) => status === 'done' || status === 'cancelled'
 const isDoneLine = (line: string) => /^\s*[-*]\s+\[[xX]\]/.test(line)
 const JSONL = 'TODO.jsonl'
@@ -229,6 +233,7 @@ export const register: Register = (on, options) => {
     const file = await read($, todo)
     const auto = (await read($, autoTodo)) === true ? 'auto ●' : 'auto ○'
     const isHidingDone = (await read($, hideDone)) === true
+    const isShowingKeys = (await read($, showKeys)) === true
     // 라벨은 숨긴 개수에 따라 바뀌므로 주소는 key 로 고정한다.
     const toggle = (closedCount: number) => (
       <Button
@@ -240,6 +245,16 @@ export const register: Register = (on, options) => {
         onPress={() => update($, hideDone, value => !value)}
       />
     )
+    const keysToggle = (
+      <Button
+        key={KEYS_TOGGLE_KEY}
+        plain
+        dimColor
+        hotkey={KEYS_TOGGLE_HOTKEY}
+        label={isShowingKeys ? 'hide keys' : 'show keys'}
+        onPress={() => update($, showKeys, value => !value)}
+      />
+    )
 
     if (file?.format === 'jsonl') {
       const closedCount = file.rows.filter(row => isClosed(row.status)).length
@@ -249,6 +264,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="row" gap={2}>
             <Text bold>{`${auto} · ${file.rows.length === 0 ? 'No items in TODO.jsonl.' : summaryOf(file.rows)}`}</Text>
             {file.rows.length > 0 && toggle(closedCount)}
+            {file.rows.length > 0 && keysToggle}
           </Box>
           {file.rows.length > 0 && rows.length === 0 && <Text dimColor>All items are done.</Text>}
           {rows.map(row => {
@@ -262,7 +278,7 @@ export const register: Register = (on, options) => {
                   strikethrough={look.strikethrough}
                   wrap="truncate-end"
                 >
-                  {`${look.glyph} ${row.title}${look.suffix ? `  (${look.suffix})` : ''}`}
+                  {`${look.glyph} ${isShowingKeys ? `[${row.id}] ` : ''}${row.title}${look.suffix ? `  (${look.suffix})` : ''}`}
                 </Text>
                 {row.note && <Text dimColor wrap="truncate-end">{`    ${row.note}`}</Text>}
               </Box>
