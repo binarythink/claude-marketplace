@@ -1,4 +1,5 @@
 import type { Artifact, ArtifactKind, ArtifactSource } from '../types'
+import { writtenFiles } from './shell'
 
 // URL 하나를 분류한 결과. 어디서 나왔는지(source)는 수집하는 쪽이 붙인다.
 export type Link = Omit<Artifact, 'source'>
@@ -128,6 +129,15 @@ export function branchesFromCommand(command: string): string[] {
   return found
 }
 
+// Bash 가 쓴 파일 중 경로가 실행 결과에 달린 것은 register 가 파일 시스템을 보고 path 를 확정한다.
+export type ParsedArtifact = Artifact & {
+  // 파일 이름에 실행해야 아는 값이 든 경우의 이름 정규식(cp f "f.bak.$(date +%s)")과 명령을 보낸 시각
+  namePattern?: string
+  writtenAt?: number
+  // cp·mv 의 대상이 폴더라면 그 안에 생기는 파일 이름
+  intoDirName?: string
+}
+
 export type ParsedTranscript = {
   // 사용자가 붙인 제목(/rename). 없으면 aiTitle, 그것도 없으면 firstPrompt 를 쓴다.
   title?: string
@@ -138,7 +148,7 @@ export type ParsedTranscript = {
   cwd?: string
   // 링크·branch·file 을 처음 수집된 순서대로. 같은 항목이 다시 나와도 처음 출처를 유지한다.
   // file 의 path 는 절대 경로이고, displayPath·href·isGone 은 register 가 채운다.
-  artifacts: Artifact[]
+  artifacts: ParsedArtifact[]
 }
 
 type Block = {
@@ -173,15 +183,16 @@ const GIT_KINDS = new Set<ArtifactKind>(['pr', 'branch', 'github'])
 // 세션 transcript(JSONL) 한 파일에서 제목·기간·링크·파일·branch 를 모은다.
 // 링크는 사용자·assistant 의 글, Bash 가 아닌 도구 입력, git·gh 명령의 입력과 산출물을 만드는 명령의 출력에서만 찾는다.
 // 다른 도구 결과(Read, WebFetch, MCP)는 잡음이 많아 보지 않는다.
+// 파일은 Write·Edit 의 경로와 Bash 명령이 쓰는 경로(redirect, sed -i, cp, mv, tee 등)다. ~ 는 home 으로 펼친다.
 // transcript 의 gitBranch 는 그때 checkout 된 branch 일 뿐이라, 다른 산출물이 있는 세션에서만 남긴다.
-export function parseTranscript(text: string): ParsedTranscript {
+export function parseTranscript(text: string, home?: string): ParsedTranscript {
   const parsed: ParsedTranscript = { artifacts: [] }
   // 링크는 href, branch 는 이름, file 은 경로로 같은 항목을 가린다.
-  const seen = new Map<string, Artifact>()
+  const seen = new Map<string, ParsedArtifact>()
   const creatingToolIds = new Set<string>()
   const checkedOut: string[] = []
 
-  const add = (key: string, artifact: Artifact) => {
+  const add = (key: string, artifact: ParsedArtifact) => {
     const known = seen.get(key)
     if (known) {
       // git push 로 URL 이 나중에 생긴 branch 는 처음 출처를 둔 채 URL 만 채운다.
@@ -202,9 +213,11 @@ export function parseTranscript(text: string): ParsedTranscript {
   const addBranch = (name: string | undefined, source: ArtifactSource, href?: string) => {
     if (isWorkBranch(name)) add(`branch:${name}`, { kind: 'branch', label: name, href, source })
   }
-  const addFile = (path: unknown) => {
+  const addFile = (path: unknown, extra?: Partial<ParsedArtifact>) => {
     if (typeof path !== 'string' || path === '') return
-    add(`file:${path}`, { kind: 'file', label: path.split('/').pop() || path, path, source: 'output' })
+    // 이름을 아직 모르는 파일은 명령마다 다른 파일이다(같은 명령으로 두 번 백업).
+    const key = extra?.namePattern ? `file:${path}@${extra.writtenAt}` : `file:${path}`
+    add(key, { kind: 'file', label: path.split('/').pop() || path, path, source: 'output', ...extra })
   }
 
   for (const line of text.split('\n')) {
@@ -265,6 +278,9 @@ export function parseTranscript(text: string): ParsedTranscript {
         }
         if (block.name === 'Bash') {
           const command = typeof input.command === 'string' ? input.command : ''
+          for (const { path, ...extra } of writtenFiles(command, { cwd: record.cwd, home })) {
+            addFile(path, extra.namePattern ? { ...extra, writtenAt: Number.isNaN(at) ? undefined : at } : extra)
+          }
           if (!GIT_COMMAND_RE.test(command)) continue
           if (block.id && CREATING_COMMAND_RE.test(command)) creatingToolIds.add(block.id)
           for (const name of branchesFromCommand(command)) addBranch(name, 'output')

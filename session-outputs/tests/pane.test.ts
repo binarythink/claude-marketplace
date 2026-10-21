@@ -223,3 +223,53 @@ test('reads a transcript over 4 MiB in line-aligned pieces', async ($, on) => {
   expect(await $.command.run(RUN)).toMatchObject({ text: 'Session outputs pane opened: 2 artifacts.' })
   expect(offsets).toEqual(['+1', `+${firstBytes + 1}`])
 })
+
+test('shows files that Bash commands appended, backed up and edited in place', async ($, on) => {
+  setup(on, [])
+  const herdr = '/Users/me/.config/herdr'
+  const sentAt = Date.parse('2026-10-15T01:05:00Z')
+  const text = transcript([
+    { type: 'user', timestamp: '2026-10-15T01:00:00Z', cwd: ROOT, message: { content: 'herdr 설정 고쳐줘' } },
+    { type: 'assistant', timestamp: '2026-10-15T01:05:00Z', cwd: ROOT, message: { content: [
+      { type: 'tool_use', id: 't1', name: 'Bash', input: { command: `f=~/.config/herdr/config.toml; cp "$f" "$f.bak.$(date +%Y%m%d-%H%M%S)"; cat >> "$f" <<'EOF'\nnext_workspace = "alt+shift+j"\nEOF\ntail -8 "$f"` } },
+      { type: 'tool_use', id: 't2', name: 'Bash', input: { command: `sed -i '' 's/a/b/' memory/vooster.md && cp memory/vooster.md docs` } },
+    ] } },
+  ])
+  on('fs.read', () => ({ value: text }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: `worktree ${ROOT}\n`, stderr: '' } as never }))
+  on('fs.list', (_$, e) => ({
+    // 명령을 보내기 전의 백업은 이 명령이 만든 것이 아니다.
+    value: e.path === herdr
+      ? [
+          { ...entry('config.toml.bak.20261001-000000'), mtimeMs: sentAt - 86_400_000 },
+          { ...entry('config.toml.bak.20261015-100501'), mtimeMs: sentAt + 1_000 },
+          { ...entry('config.toml'), mtimeMs: sentAt + 1_000 },
+        ]
+      : [],
+  }))
+  on('fs.stat', (_$, e) => {
+    if (e.path === `${PROJECTS}/s-now.jsonl`) return { value: { kind: 'file' as const, size: text.length, mtimeMs: 1, isLink: false } }
+    if (e.path === `${ROOT}/docs`) return { value: { kind: 'dir' as const, size: 0, mtimeMs: 1, isLink: false } }
+    throw new Error('ENOENT')
+  })
+  on('fs.exists', () => ({ value: true }))
+
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+  expect(await $.command.run(RUN)).toMatchObject({ text: 'Session outputs pane opened: 4 artifacts.' })
+  const ui = await $.ui.mount({
+    plugin: 'session-outputs',
+    surface: 'terminal',
+    component: 'Pane',
+    props: { title: 'Session outputs' },
+    requestId: 'session-outputs',
+  } as never)
+  const rows = (await ui.findAll({ type: 'Text' }))
+    .filter(one => one.props.wrap === 'truncate-end' && /^(› |  )\S/.test(one.text))
+    .map(one => one.text.slice(2).replace(/\s+/g, ' '))
+  expect(rows).toEqual([
+    'File config.toml.bak.20261015-100501 ~/.config/herdr',
+    'File config.toml ~/.config/herdr',
+    'File vooster.md memory',
+    'File vooster.md docs',
+  ])
+})
