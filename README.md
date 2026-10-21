@@ -65,13 +65,17 @@ cap.sh [--pane <id>] [--out <png|dir>] [--title <text>] [--lines N]
 
 | 그룹 | 출처 |
 |---|---|
-| output | assistant 의 글과 도구 입력(MCP 호출 포함)에 나온 URL, `Write`·`Edit`·`NotebookEdit` 로 만든 파일, `git`·`gh` 명령의 입출력, 세션 중 checkout 된 branch, 세션 scratchpad 의 파일 |
+| output | assistant 의 글과 도구 입력(MCP 호출 포함)에 나온 URL, `Write`·`Edit`·`NotebookEdit` 와 Bash 명령으로 만들거나 고친 파일, `git`·`gh` 명령의 입출력, 세션 중 checkout 된 branch, 세션 scratchpad 의 파일 |
 | input | 사용자 메시지의 글에 나온 URL |
 
 - 같은 항목이 두 그룹에서 나오면 처음 나온 쪽에만 보인다. 사용자가 준 참고 링크를 assistant 가 다시 언급해도 input 에 남는다
 - 그룹 안에서는 세션에 처음 나온 순서이고, 파일과 링크가 섞인다. scratchpad 파일은 output 의 맨 끝에 온다
 - 각 행은 type(PR · Branch · Jira · Confluence · Notion · Slack · GitHub · Web · File · Scratch), name, path 순이다. 파일의 name 은 파일 이름, path 는 worktree 기준 폴더(root 는 `.`)이고, 링크의 path 는 URL 이다. path 는 흐리게 보인다. 지금 없는 파일은 `(deleted)` 로 표시한다
 - `git`·`gh` 명령에서는 입력·출력 모두 GitHub 링크(PR · Branch · GitHub)만 남긴다. 출력은 `gh pr create`·`gh issue create`·`gh release create`·`git push` 의 것만 읽는다. `gh pr view`·`gh api`·`git log` 같은 조회 명령의 출력과 PR 본문(`--body`)의 Jira·Notion 링크는 참고 자료라 제외한다
+- Bash 명령은 실행하지 않고 글자만 읽어, 쓰기 대상 경로를 찾는다: redirect(`>`·`>>`·`&>`, heredoc 포함), `sed -i`·`perl -i`, `cp`·`mv`·`install` 의 대상, `tee`, `touch`, `curl -o`, `dd of=`, `sh -c` 안의 명령. 같은 명령 안의 변수 대입(`f=~/x; cat >> "$f"`)과 `cd` 는 따라가고, 상대 경로는 그 명령을 보낸 때의 cwd 기준이다
+  - 파일 이름에 `$(date …)` 처럼 실행해야 아는 값이 있으면(`cp f "f.bak.$(date +%s)"`) 같은 폴더에서 이름이 맞고 명령을 보낸 뒤 고쳐진 파일 중 가장 먼저 고쳐진 것을 보인다. 찾지 못하면 보이지 않는다
+  - `cp a dir` 처럼 대상이 폴더면 `dir/a` 를 보인다
+  - 폴더 부분을 모르는 경로(정의하지 않은 `$VAR`, `$(mktemp)`), glob, `/dev/*` 는 제외한다. `python script.py` 처럼 프로그램 안에서 쓰는 파일은 찾지 못한다
 - branch 는 `git checkout -b`·`git switch -c`·`git worktree add -b`·`git push -u` 명령, `git push` 출력의 `pull/new/<branch>` URL 에서 찾는다
 - scratchpad 는 `/tmp` 아래라 재부팅 후에는 사라진다
 

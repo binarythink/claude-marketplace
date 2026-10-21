@@ -1,4 +1,4 @@
-// file 은 Write/Edit 로 만든 파일, scratch 는 세션 scratchpad 의 파일.
+// file 은 Write/Edit 나 Bash 명령(redirect, sed -i, cp, mv, tee 등)으로 만들거나 고친 파일, scratch 는 세션 scratchpad 의 파일.
 export type ArtifactKind =
   | 'pr' | 'branch' | 'jira' | 'notion' | 'confluence' | 'slack' | 'github' | 'web' | 'file' | 'scratch'
 

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiPressArgument } from 'claude-code'
 
 import type { Artifact, ArtifactIndex, ArtifactKind, ArtifactSource } from '../types'
-import type { ParsedTranscript } from './parse'
+import type { ParsedArtifact, ParsedTranscript } from './parse'
 import {
   KIND_LABELS, clockTime, dirOf, displayPath, parseTranscript, parseWorktrees, slugOf, spanOf,
 } from './parse'
@@ -14,6 +14,8 @@ const TMP_ROOTS = ['/private/tmp', '/tmp']
 const SCRATCH_DEPTH = 2
 // $.fs.read 와 $.process.run 의 stdout 은 4 MiB 까지라, 그보다 큰 transcript 는 나눠 읽는다.
 const READ_LIMIT = 4 * 1024 * 1024
+// 명령을 보낸 시각(assistant 메시지 기록 시각)과 파일 mtime 사이의 시계 오차 여유
+const WRITTEN_SLACK_MS = 5_000
 
 const indexAtom = atom({ plugin: 'session-outputs', key: 'index' } as const, {} as ArtifactIndex)
 // j/k 로 고르는 item 의 순번. 화면에 그린 순서(출처별 묶음) 기준이다.
@@ -108,12 +110,30 @@ async function readLarge($: EngineInterface, path: string): Promise<string> {
   }
 }
 
-async function readTranscript($: EngineInterface, path: string, mtimeMs: number, size: number) {
+async function readTranscript($: EngineInterface, path: string, mtimeMs: number, size: number, home?: string) {
   if (cached && cached.path === path && cached.mtimeMs === mtimeMs && cached.size === size) return cached.parsed
   const text = size < READ_LIMIT ? await $.fs.read(path) : await readLarge($, path)
-  const parsed = parseTranscript(text)
+  const parsed = parseTranscript(text, home)
   cached = { path, mtimeMs, size, parsed }
   return parsed
+}
+
+// Bash 가 쓴 파일 중 경로가 실행 결과에 달린 것의 지금 경로. 찾지 못하면 undefined 라 목록에서 뺀다.
+// - cp a dir: dir 이 폴더면 그 안의 a
+// - cp f "f.bak.$(date +%s)": 이름이 맞고 명령을 보낸 뒤 고쳐진 파일 중 가장 먼저 고쳐진 것
+async function settlePath($: EngineInterface, one: ParsedArtifact & { path: string }): Promise<string | undefined> {
+  if (one.intoDirName) {
+    const stat = await $.fs.stat(one.path).catch(() => undefined)
+    return stat?.kind === 'dir' ? `${one.path}/${one.intoDirName}` : one.path
+  }
+  if (!one.namePattern) return one.path
+  const dir = one.path.slice(0, one.path.lastIndexOf('/')) || '/'
+  const name = new RegExp(one.namePattern)
+  const after = (one.writtenAt ?? 0) - WRITTEN_SLACK_MS
+  const [first] = (await $.fs.list(dir).catch(() => []))
+    .filter(entry => entry.kind === 'file' && name.test(entry.name) && entry.mtimeMs >= after)
+    .sort((a, b) => a.mtimeMs - b.mtimeMs)
+  return first && `${dir === '/' ? '' : dir}/${first.name}`
 }
 
 // 현재 세션의 transcript 와 scratchpad 만 읽는다.
@@ -139,20 +159,25 @@ async function buildIndex($: EngineInterface): Promise<ArtifactIndex> {
   // 새 세션은 첫 프롬프트를 보내기 전까지 transcript 가 없다. 오류가 아니라 아직 산출물이 없는 상태다.
   if (!transcript) return { loadedAt: Date.now() }
 
-  const parsed = await readTranscript($, transcript.path, transcript.mtimeMs, transcript.size)
+  const parsed = await readTranscript($, transcript.path, transcript.mtimeMs, transcript.size, home)
   const artifacts: Artifact[] = []
-  for (const one of parsed.artifacts) {
+  const files = new Set<string>()
+  for (const { namePattern, writtenAt, intoDirName, ...one } of parsed.artifacts) {
     if (one.kind !== 'file' || !one.path) {
       artifacts.push(one)
       continue
     }
+    const path = await settlePath($, { ...one, path: one.path, namePattern, writtenAt, intoDirName })
     // scratchpad 에 쓴 파일은 아래 Scratch 로 보인다.
-    if (one.path.includes(`/${id}/scratchpad/`)) continue
-    const exists = await $.fs.exists(one.path).catch(() => false)
+    if (!path || files.has(path) || path.includes(`/${id}/scratchpad/`)) continue
+    files.add(path)
+    const exists = await $.fs.exists(path).catch(() => false)
     artifacts.push({
       ...one,
-      displayPath: displayPath(one.path, roots, home),
-      href: exists ? `file://${one.path}` : undefined,
+      label: path.split('/').pop() || path,
+      path,
+      displayPath: displayPath(path, roots, home),
+      href: exists ? `file://${path}` : undefined,
       isGone: !exists,
     })
   }
